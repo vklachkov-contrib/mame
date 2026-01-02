@@ -39,41 +39,41 @@ struct grid210x_gpib_cmd
 {
 	enum class cmd_type : uint8_t
 	{
-		DCL = 0,
-		SPE = 1,
-		SPD = 2,
-		MLA = 3,
-		UNL = 4,
-		MTA = 5,
-		UNT = 6
+		DCL,
+		SPE,
+		SPD,
+		MLA,
+		UNL,
+		MTA,
+		UNT,
+		UNKNOWN = 0xFF,
 	};
 
-	cmd_type type = cmd_type::DCL;
-	uint8_t addr = 0;
+	uint8_t raw;
+	cmd_type type;
+	uint8_t addr;
 
 	static grid210x_gpib_cmd from_u8(uint8_t value)
 	{
-		printf("from_u8(0x%x)", value);
-
 		if (value == 0b0001'0100)
-			return grid210x_gpib_cmd{ cmd_type::DCL, 0 };
+			return grid210x_gpib_cmd{ value, cmd_type::DCL, 0 };
 		else if (value == 0b0001'1000)
-			return grid210x_gpib_cmd{ cmd_type::SPE, 0 };
+			return grid210x_gpib_cmd{ value, cmd_type::SPE, 0 };
 		else if (value == 0b0001'1001)
-			return grid210x_gpib_cmd{ cmd_type::SPD, 0 };
+			return grid210x_gpib_cmd{ value, cmd_type::SPD, 0 };
 		else if (value == 0b0011'1111)
-			return grid210x_gpib_cmd{ cmd_type::UNL, 0 };
+			return grid210x_gpib_cmd{ value, cmd_type::UNL, 0 };
 		else if (value == 0b0101'1111)
-			return grid210x_gpib_cmd{ cmd_type::UNT, 0 };
+			return grid210x_gpib_cmd{ value, cmd_type::UNT, 0 };
 		else if ((value & 0b0110'0000) == 0b0010'0000)
-			return grid210x_gpib_cmd{ cmd_type::MLA, uint8_t(value & 0b0001'1111) };
+			return grid210x_gpib_cmd{ value, cmd_type::MLA, uint8_t(value & 0b0001'1111) };
 		else if ((value & 0b0110'0000) == 0b0100'0000)
-			return grid210x_gpib_cmd{ cmd_type::MTA, uint8_t(value & 0b0001'1111) };
-
-		throw std::runtime_error("received unexpected command");
+			return grid210x_gpib_cmd{ value, cmd_type::MTA, uint8_t(value & 0b0001'1111) };
+		else
+			return grid210x_gpib_cmd{ value, cmd_type::UNKNOWN, 0 };
 	}
 
-	void debug() const
+	void debug_log() const
 	{
 		switch (type)
 		{
@@ -84,6 +84,7 @@ struct grid210x_gpib_cmd
 		case cmd_type::UNT: printf("UNT\n"); return;
 		case cmd_type::MLA: printf("MLA(%d)\n", addr); return;
 		case cmd_type::MTA: printf("MTA(%d)\n", addr); return;
+		case cmd_type::UNKNOWN: printf("UNKNOWN/%d\n", raw); return;
 		}
 	}
 };

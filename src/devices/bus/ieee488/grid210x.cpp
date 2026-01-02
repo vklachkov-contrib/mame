@@ -65,7 +65,7 @@ void grid210x_device::process_command()
 	while (true)
 	{
 		grid210x_gpib_cmd cmd = m_listener->start_command_handshake();
-		cmd.debug();
+		cmd.debug_log();
 
 		switch (cmd.type)
 		{
@@ -152,6 +152,9 @@ void grid210x_device::process_command()
 			{
 				m_listener->unexpected_command();
 			}
+			break;
+		case grid210x_gpib_cmd::cmd_type::UNKNOWN:
+			m_listener->unexpected_command();
 			break;
 		}
 	}
