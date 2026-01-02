@@ -21,14 +21,14 @@
 //  TYPE DEFINITIONS
 //**************************************************************************
 
-// ======================> grid210x_device
-class grid210x_device :  public device_t,
+// ======================> grid210x_old_device
+class grid210x_old_device :  public device_t,
 						public device_ieee488_interface,
 						public device_image_interface
 {
 public:
 	// construction/destruction
-	grid210x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, int bus_addr, uint8_t *identify_response, attotime read_delay = attotime::from_msec(5));
+	grid210x_old_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, int bus_addr, uint8_t *identify_response, attotime read_delay = attotime::from_msec(5));
 
 protected:
 	// device-level overrides
@@ -81,7 +81,7 @@ protected:
 	attotime read_delay;
 };
 
-class grid2102_device : public grid210x_device {
+class grid2102_device : public grid210x_old_device {
 public:
 	// construction/destruction
 	grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
@@ -89,7 +89,7 @@ private:
 	static uint8_t identify_response[];
 };
 
-class grid2101_floppy_device : public grid210x_device {
+class grid2101_floppy_device : public grid210x_old_device {
 public:
 	// construction/destruction
 	grid2101_floppy_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
@@ -97,7 +97,7 @@ private:
 	static uint8_t identify_response[];
 };
 
-class grid2101_hdd_device : public grid210x_device {
+class grid2101_hdd_device : public grid210x_old_device {
 public:
 	// construction/destruction
 	grid2101_hdd_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);

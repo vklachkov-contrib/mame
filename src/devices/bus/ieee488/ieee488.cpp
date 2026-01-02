@@ -243,6 +243,10 @@ void ieee488_device::set_signal(device_t *device, int signal, int state)
 
 		while (entry)
 		{
+			if (entry->m_device == device && !entry->m_interface->ieee488_allow_recursion()) {
+				goto next;
+			}
+
 			switch (signal)
 			{
 			case EOI:
@@ -278,6 +282,7 @@ void ieee488_device::set_signal(device_t *device, int signal, int state)
 				break;
 			}
 
+next:
 			entry = entry->next();
 		}
 
@@ -450,10 +455,12 @@ void remote488_devices(device_slot_interface &device)
 
 // slot devices
 #include "grid2102.h"
+#include "grid210x.h"
 
 void grid_ieee488_devices(device_slot_interface &device)
 {
 	device.option_add("grid2102", GRID2102).clock(XTAL(4'000'000));
 	device.option_add("grid2101_floppy", GRID2101_FLOPPY).clock(XTAL(4'000'000));
 	device.option_add("grid2101_hdd", GRID2101_HDD).clock(XTAL(4'000'000));
+	device.option_add("grid210x", GRID210X);
 }

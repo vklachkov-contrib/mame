@@ -220,6 +220,7 @@ public:
 	device_ieee488_interface *next() const { return m_next; }
 
 	// optional operation overrides
+	virtual bool ieee488_allow_recursion() const { return true; };
 	virtual void ieee488_eoi(int state) { }
 	virtual void ieee488_dav(int state) { }
 	virtual void ieee488_nrfd(int state) { }

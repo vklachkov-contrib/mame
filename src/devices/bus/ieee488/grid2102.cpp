@@ -65,7 +65,7 @@ uint8_t grid2101_hdd_device::identify_response[56] = {
 };
 
 
-grid210x_device::grid210x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, int bus_addr, uint8_t *identify_response, attotime read_delay)
+grid210x_old_device::grid210x_old_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, int bus_addr, uint8_t *identify_response, attotime read_delay)
 	: device_t(mconfig, type, tag, owner, clock),
 	  device_ieee488_interface(mconfig, *this),
 	  device_image_interface(mconfig, *this),
@@ -83,13 +83,13 @@ grid210x_device::grid210x_device(const machine_config &mconfig, device_type type
 
 }
 
-void grid210x_device::device_start() {
+void grid210x_old_device::device_start() {
 	m_bus->ndac_w(this, 1);
 	m_bus->nrfd_w(this, 1);
-	m_delay_timer = timer_alloc(FUNC(grid210x_device::delay_tick), this);
+	m_delay_timer = timer_alloc(FUNC(grid210x_old_device::delay_tick), this);
 }
 
-TIMER_CALLBACK_MEMBER(grid210x_device::delay_tick) {
+TIMER_CALLBACK_MEMBER(grid210x_old_device::delay_tick) {
 	if (m_floppy_loop_state == GRID210X_STATE_READING_DATA) {
 		std::unique_ptr<uint8_t[]> data(new uint8_t[io_size]);
 		fseek(floppy_sector_number * 512, SEEK_SET);
@@ -113,17 +113,17 @@ TIMER_CALLBACK_MEMBER(grid210x_device::delay_tick) {
 	}
 }
 
-void grid210x_device::ieee488_eoi(int state) {
-	// logerror("grid210x_device eoi state set to %d\n", state);
+void grid210x_old_device::ieee488_eoi(int state) {
+	// logerror("grid210x_old_device eoi state set to %d\n", state);
 }
 
-void grid210x_device::accept_transfer() {
+void grid210x_old_device::accept_transfer() {
 	if (m_floppy_loop_state == GRID210X_STATE_IDLE) {
 		if (m_data_buffer.size() >= 0xA) {
 			uint8_t command = m_data_buffer[0];
 			uint32_t sector_number = GRID2102_FETCH32(m_data_buffer, 3);
 			uint16_t data_size = GRID2102_FETCH16(m_data_buffer, 7);
-			LOG("grid210x_device command %u, data size %u, sector no %u\n", (unsigned)command, (unsigned)data_size, (unsigned)sector_number);
+			LOG("grid210x_old_device command %u, data size %u, sector no %u\n", (unsigned)command, (unsigned)data_size, (unsigned)sector_number);
 			(void)(sector_number);
 			if (command == 0x1) { // ddGetStatus
 				for (int i = 0; i < 56 && i < data_size; i++) {
@@ -148,21 +148,21 @@ void grid210x_device::accept_transfer() {
 		} else {
 			// TODO: set status
 		}
-		// logerror("grid210x_device write sector %d\n", floppy_sector_number);
+		// logerror("grid210x_old_device write sector %d\n", floppy_sector_number);
 		// wait
 		m_floppy_loop_state = GRID210X_STATE_WRITING_DATA_WAIT;
 		m_delay_timer->adjust(read_delay);
 	}
 }
 
-void grid210x_device::ieee488_dav(int state) {
+void grid210x_old_device::ieee488_dav(int state) {
 	if(state == 0 && m_gpib_loop_state == GRID210X_GPIB_STATE_IDLE) {
 		// read data and wait for transfer end
 		int atn = m_bus->atn_r() ^ 1;
 		m_bus->nrfd_w(this, 0);
 		uint8_t data = m_bus->dio_r() ^ 0xFF;
 		int eoi = m_bus->eoi_r() ^ 1;
-		LOG_BYTES("grid210x_device byte recv %02x atn %d eoi %d\n", data, atn, eoi);
+		LOG_BYTES("grid210x_old_device byte recv %02x atn %d eoi %d\n", data, atn, eoi);
 		m_last_recv_byte = data;
 		m_last_recv_atn = atn;
 		m_last_recv_eoi = eoi;
@@ -180,21 +180,21 @@ void grid210x_device::ieee488_dav(int state) {
 				if ((m_last_recv_byte & 0x1F) == bus_addr) {
 					// dev-id = 5
 					listening = true;
-					LOG("grid210x_device now listening\n");
+					LOG("grid210x_old_device now listening\n");
 				} else if((m_last_recv_byte & 0x1F) == 0x1F) {
 					// reset listen
 					listening = false;
-					LOG("grid210x_device now not listening\n");
+					LOG("grid210x_old_device now not listening\n");
 				}
 			} else if ((m_last_recv_byte & 0xE0) == 0x40) {
 				if ((m_last_recv_byte & 0x1F) == bus_addr) {
 					// dev-id = 5
 					talking = true;
-					LOG("grid210x_device now talking\n");
+					LOG("grid210x_old_device now talking\n");
 				} else {
 					// reset talk
 					talking = false;
-					LOG("grid210x_device now not talking\n");
+					LOG("grid210x_old_device now not talking\n");
 				}
 			} else if (m_last_recv_byte == 0x18) {
 				// serial poll enable
@@ -232,7 +232,7 @@ void grid210x_device::ieee488_dav(int state) {
 	}
 }
 
-void grid210x_device::ieee488_nrfd(int state) {
+void grid210x_old_device::ieee488_nrfd(int state) {
 	if (state == 1 && m_gpib_loop_state == GRID210X_GPIB_STATE_SEND_DATA_START) {
 		// set dio and assert dav
 		m_bus->host_dio_w(m_byte_to_send ^ 0xFF);
@@ -240,16 +240,16 @@ void grid210x_device::ieee488_nrfd(int state) {
 		m_bus->dav_w(this, 0);
 		m_bus->ndac_w(this, 1);
 		m_gpib_loop_state = GRID210X_GPIB_STATE_WAIT_NDAC_FALSE;
-		LOG_BYTES("grid210x_device byte send %02x eoi %d\n", m_byte_to_send, m_send_eoi);
+		LOG_BYTES("grid210x_old_device byte send %02x eoi %d\n", m_byte_to_send, m_send_eoi);
 		ieee488_ndac(m_bus->ndac_r());
 	}
-	// logerror("grid210x_device nrfd state set to %d\n", state);
+	// logerror("grid210x_old_device nrfd state set to %d\n", state);
 }
 
-void grid210x_device::ieee488_ndac(int state) {
+void grid210x_old_device::ieee488_ndac(int state) {
 	if (state == 1 && m_gpib_loop_state == GRID210X_GPIB_STATE_WAIT_NDAC_FALSE) {
 		// restore initial state
-		// logerror("grid210x_device restore ndac nrfd dav eoi\n");
+		// logerror("grid210x_old_device restore ndac nrfd dav eoi\n");
 		m_bus->nrfd_w(this, 1);
 		m_bus->dav_w(this, 1);
 		m_bus->eoi_w(this, 1);
@@ -266,23 +266,23 @@ void grid210x_device::ieee488_ndac(int state) {
 			m_gpib_loop_state = GRID210X_GPIB_STATE_SEND_DATA_START;
 		}
 	}
-	// logerror("grid210x_device ndac state set to %d\n", state);
+	// logerror("grid210x_old_device ndac state set to %d\n", state);
 }
 
-void grid210x_device::ieee488_ifc(int state) {
-	// logerror("grid210x_device ifc state set to %d\n", state);
+void grid210x_old_device::ieee488_ifc(int state) {
+	// logerror("grid210x_old_device ifc state set to %d\n", state);
 }
 
-void grid210x_device::ieee488_srq(int state) {
-	// logerror("grid210x_device srq state set to %d\n", state);
+void grid210x_old_device::ieee488_srq(int state) {
+	// logerror("grid210x_old_device srq state set to %d\n", state);
 }
 
-void grid210x_device::ieee488_atn(int state) {
-	// logerror("grid210x_device atn state set to %d\n", state);
+void grid210x_old_device::ieee488_atn(int state) {
+	// logerror("grid210x_old_device atn state set to %d\n", state);
 	update_ndac(state ^ 1);
 }
 
-void grid210x_device::update_ndac(int atn) {
+void grid210x_old_device::update_ndac(int atn) {
 	if (m_gpib_loop_state == GRID210X_GPIB_STATE_IDLE) {
 		if (atn) {
 			// pull NDAC low
@@ -294,22 +294,22 @@ void grid210x_device::update_ndac(int atn) {
 	}
 }
 
-void grid210x_device::ieee488_ren(int state) {
-	LOG("grid210x_device ren state set to %d\n", state);
+void grid210x_old_device::ieee488_ren(int state) {
+	LOG("grid210x_old_device ren state set to %d\n", state);
 }
 
 grid2101_hdd_device::grid2101_hdd_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: grid210x_device(mconfig, GRID2101_HDD, tag, owner, clock, 4, identify_response, attotime::from_usec(150))
+	: grid210x_old_device(mconfig, GRID2101_HDD, tag, owner, clock, 4, identify_response, attotime::from_usec(150))
 {
 
 }
 
-grid2101_floppy_device::grid2101_floppy_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_device(mconfig, GRID2101_FLOPPY, tag, owner, clock, 5, identify_response)
+grid2101_floppy_device::grid2101_floppy_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_old_device(mconfig, GRID2101_FLOPPY, tag, owner, clock, 5, identify_response)
 {
 
 }
 
-grid2102_device::grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_device(mconfig, GRID2102, tag, owner, clock, 6, identify_response)
+grid2102_device::grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_old_device(mconfig, GRID2102, tag, owner, clock, 6, identify_response)
 {
 
 }
