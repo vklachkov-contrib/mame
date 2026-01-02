@@ -22,9 +22,16 @@ void grid210x_device::device_start()
 {
 	m_emu = std::make_unique<grid210x_disk_emu>(
 		this,
-		[this](uint32_t sector, uint8_t *buffer) { read_sector(sector, buffer); },
-		[this](uint32_t sector, const uint8_t *data) { write_sector(sector, data); },
-		[this]() { raise_srq(); }
+		grid210x_disk_io
+		{
+			[this]() { return is_floppy(); },
+			[this]() { return has_disk(); },
+			[this]() { return get_geometry(); },
+			[this](uint32_t sector, uint8_t *buffer) { read_sector(sector, buffer); },
+			[this](uint32_t sector, const uint8_t *data) { write_sector(sector, data); },
+			[this]() { format_disk(); },
+			[this]() { raise_srq(); }
+		}
 	);
 
 	m_listener = std::make_unique<grid210x_gpib_listener>(this, m_bus, &m_gpib_sync);
@@ -169,13 +176,50 @@ void grid210x_device::listen_to_buffer()
 	}
 }
 
+
+//**************************************************************************
+//  DISK EMULATOR IO IMPLEMENTATION
+//**************************************************************************
+
+bool grid210x_device::is_floppy()
+{
+	// fixme: implement only in children.
+	return true;
+}
+
+bool grid210x_device::has_disk()
+{
+	// fixme: use mame value.
+	return true;
+}
+
+grid210x_disk_geometry grid210x_device::get_geometry()
+{
+	// fixme: fill real value
+	return grid210x_disk_geometry
+	{
+		/* sector_count        */ 720,
+		/* sectors_per_track   */ 0,
+		/* tracks_per_cylinder */ 0,
+		/* interleave_factor   */ 0,
+		/* second_side_count   */ 0,
+		/* num_cylinders       */ 0,
+	};
+}
+
 void grid210x_device::read_sector(uint32_t sector, uint8_t *buffer)
 {
 	fseek(sector * 512, SEEK_SET);
 	fread(buffer, 512);
 }
 
-void grid210x_device::write_sector(uint32_t sector, const uint8_t *data)
+void grid210x_device::write_sector(uint32_t sector, const uint8_t *buffer)
+{
+	fseek(sector * 512, SEEK_SET);
+	fwrite(buffer, 512);
+}
+
+void grid210x_device::format_disk()
 {
 	// stub
 }
@@ -265,20 +309,11 @@ void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 	output[55] = (num_cylinders >> 8) & 0xFF;
 }
 
-grid210x_disk_emu::grid210x_disk_emu(
-	grid210x_device *dev,
-	grid210x_reader_fn reader,
-	grid210x_writer_fn writer,
-	grid210x_raise_srq_fn raise_srq,
-	attotime io_delay
-)
-	: m_dev(dev)
-	, m_read_sector(std::move(reader))
-	, m_write_sector(std::move(writer))
-	, m_raise_srq(std::move(raise_srq))
+grid210x_disk_emu::grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay)
 {
+	m_disk_io = disk_io;
 	m_io_delay = io_delay;
-	m_io_delay_timer = m_dev->timer_alloc(FUNC(grid210x_disk_emu::delay_io_req), this);
+	m_io_delay_timer = dev->timer_alloc(FUNC(grid210x_disk_emu::delay_io_req), this);
 	m_buffer.reserve(512);
 }
 
@@ -290,15 +325,15 @@ void grid210x_disk_emu::reset()
 
 void grid210x_disk_emu::process_buffer(const std::vector<uint8_t> &buffer)
 {
-	// printf("PROCESS BUFFER\n");
+	printf("PROCESS BUFFER %zu\n", buffer.size());
 
 	if (m_current_req.has_value())
 	{
 		const grid210x_disk_req req = m_current_req.value();
 		if (req.code == REQ_WRITE)
 		{
-			// todo: write sector
-			m_raise_srq();
+			m_buffer = buffer;
+			m_io_delay_timer->adjust(m_io_delay);
 			return;
 		}
 	}
@@ -324,8 +359,10 @@ void grid210x_disk_emu::process_new_request(const std::vector<uint8_t> &buffer)
 	case REQ_GET_STATUS:
 		// printf("GET STATUS\n");
 		break;
-	case REQ_READ:
 	case REQ_WRITE:
+		// wait 512 bytes
+		break;
+	case REQ_READ:
 	case REQ_FORMAT:
 		m_io_delay_timer->adjust(m_io_delay);
 		break;
@@ -343,17 +380,26 @@ TIMER_CALLBACK_MEMBER(grid210x_disk_emu::delay_io_req)
 	{
 	case REQ_READ:
 		m_buffer.resize(512, 0);
-		m_read_sector(req.sector, m_buffer.data());
+		m_disk_io.read_sector(req.sector, m_buffer.data());
 		break;
+
 	case REQ_WRITE:
+		if (m_buffer.size() != 512)
+			throw std::runtime_error("buffer size for write must be 512 bytes");
+		if (req.mode == 0)
+			m_disk_io.write_sector(req.sector, m_buffer.data());
+		m_buffer.clear();
 		break;
+
 	case REQ_FORMAT:
+		m_disk_io.format_disk();
 		break;
+
 	default:
 		throw std::runtime_error("delay_io_req: unsupported request code");
 	}
 
-	m_raise_srq();
+	m_disk_io.raise_srq();
 }
 
 void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
@@ -364,6 +410,8 @@ void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
 	{
 		throw std::runtime_error("talk without request???");
 	}
+
+	// fixme: check disk present using m_disk_io.has_disk
 
 	const grid210x_disk_req req = m_current_req.value();
 	switch (req.code)
@@ -389,6 +437,12 @@ void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
 		throw std::runtime_error("found unsupported requests are not handled");
 	}
 
+	if (m_buffer.size() == 0)
+	{
+		printf("code=%d",req.code);
+		throw std::runtime_error("empty talk?????");
+	}
+
 	talker->send_bytes(m_buffer);
 
 	reset();
@@ -396,26 +450,31 @@ void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
 
 void grid210x_disk_emu::get_status(uint16_t data_size)
 {
+	grid210x_disk_geometry geom = m_disk_io.get_geometry();
+
 	grid210x_disk_status status{};
 	status.sector_size = 512;
 	status.logical_sector_size = 504;
-	status.sector_count = 720; // fixme
+	status.sector_count = geom.sector_count;
 	status.drive_status = 1;
 	status.bitmap_block_id = 0x120;
 	status.superblock_id = 0x121;
 	status.min_dir_pages = 1;
 	status.flush = 0;
-	std::fill(std::begin(status.device_name), std::end(status.device_name), 0);
+	std::fill(std::begin(status.device_name), std::end(status.device_name), ' ');
 	status.bytes_per_sector = 512;
-	status.sectors_per_track = 0;
-	status.tracks_per_cylinder = 0;
-	status.interleave_factor = 0;
-	status.second_side_count = 0;
-	status.num_cylinders = 0;
+	status.sectors_per_track = geom.sectors_per_track;
+	status.tracks_per_cylinder = geom.tracks_per_cylinder;
+	status.interleave_factor = geom.interleave_factor;
+	status.second_side_count = geom.second_side_count;
+	status.num_cylinders = geom.num_cylinders;
 
 	status.serialize(m_buffer);
 
-	m_buffer.resize(data_size == 54 ? 52 : data_size);
+	if (m_disk_io.is_floppy())
+		m_buffer.resize(52);
+	else
+		m_buffer.resize(data_size == 54 ? 52 : data_size);
 }
 
 
@@ -425,7 +484,6 @@ void grid210x_disk_emu::get_status(uint16_t data_size)
 
 void grid210x_gpib_sync::notify_and_wait()
 {
-	// printf("\tENTER TO notify_and_wait()\n");
 	std::unique_lock<std::mutex> lock(m_mutex);
 
 	m_cv.wait(lock, [this]() {
@@ -445,7 +503,6 @@ void grid210x_gpib_sync::notify_and_wait()
 	m_cv.wait(lock, [this]() {
 		return this->m_state == state::waiting;
 	});
-	// printf("\tEXIT FROM notify_and_wait()\n");
 }
 
 void grid210x_gpib_sync::wait_changes()

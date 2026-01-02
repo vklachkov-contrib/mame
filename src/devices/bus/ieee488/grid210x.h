@@ -149,7 +149,8 @@ private:
 
 const size_t REQUEST_LEN = 10;
 
-enum grid210x_disk_req_code : uint8_t {
+enum grid210x_disk_req_code : uint8_t
+{
 	REQ_INITIALIZE   = 0,
 	REQ_GET_STATUS   = 1,
 	REQ_READ         = 4,
@@ -157,7 +158,8 @@ enum grid210x_disk_req_code : uint8_t {
 	REQ_FORMAT       = 17
 };
 
-struct grid210x_disk_req {
+struct grid210x_disk_req
+{
 	// Operation code. Determines what magic the emulator will do next.
 	uint8_t code;
 
@@ -186,7 +188,8 @@ struct grid210x_disk_req {
 
 const size_t RESPONSE_LEN = 7;
 
-enum grid210x_disk_resp_status : uint16_t {
+enum grid210x_disk_resp_status : uint16_t
+{
 	RESP_OK            = 0x00,
 	RESP_UNSUPPORTED   = 0x23,
 	RESP_NOT_READY     = 0x6b,
@@ -195,7 +198,8 @@ enum grid210x_disk_resp_status : uint16_t {
 	RESP_NOT_FORMATTED = 0x68
 };
 
-struct grid210x_disk_resp {
+struct grid210x_disk_resp
+{
 	// Status code of the request.
 	uint16_t status;
 
@@ -213,7 +217,8 @@ struct grid210x_disk_resp {
 
 const size_t DISK_STATUS_MAX_LEN = 56;
 
-struct grid210x_disk_status {
+struct grid210x_disk_status
+{
 	// Actual sector size. Always 512 bytes.
 	uint16_t sector_size;
 
@@ -266,20 +271,31 @@ struct grid210x_disk_status {
 	void serialize(std::vector<uint8_t> &output) const;
 };
 
-using grid210x_reader_fn = std::function<void(uint32_t sector, uint8_t *buffer)>;
-using grid210x_writer_fn = std::function<void(uint32_t sector, const uint8_t *data)>;
-using grid210x_raise_srq_fn = std::function<void()>;
+struct grid210x_disk_geometry
+{
+	uint16_t sector_count;
+	uint16_t sectors_per_track;
+	uint16_t tracks_per_cylinder;
+	uint8_t  interleave_factor;
+	uint8_t  second_side_count;
+	uint16_t num_cylinders;
+};
+
+struct grid210x_disk_io
+{
+	std::function<bool()> is_floppy;
+	std::function<bool()> has_disk;
+	std::function<grid210x_disk_geometry()> get_geometry;
+	std::function<void(uint32_t sector, uint8_t *buffer)> read_sector;
+	std::function<void(uint32_t sector, const uint8_t *buffer)> write_sector;
+	std::function<void()> format_disk;
+	std::function<void()> raise_srq;
+};
 
 class grid210x_disk_emu
 {
 public:
-	grid210x_disk_emu(
-		grid210x_device *dev,
-		grid210x_reader_fn reader,
-		grid210x_writer_fn writer,
-		grid210x_raise_srq_fn raise_srq,
-		attotime io_delay = attotime::from_msec(5)
-	);
+	grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay = attotime::from_msec(5));
 
 	void reset();
 
@@ -291,15 +307,11 @@ public:
 	void get_status(uint16_t data_size);
 
 private:
-	grid210x_device *m_dev;
+	grid210x_disk_io m_disk_io;
 
 	TIMER_CALLBACK_MEMBER(delay_io_req);
 	emu_timer *m_io_delay_timer;
 	attotime m_io_delay;
-
-	grid210x_reader_fn m_read_sector;
-	grid210x_writer_fn m_write_sector;
-	grid210x_raise_srq_fn m_raise_srq;
 
 	std::optional<grid210x_disk_req> m_current_req;
 	std::vector<uint8_t> m_buffer;
@@ -344,16 +356,18 @@ protected:
 	virtual const char *image_brief_type_name() const noexcept override { return "flop"; }
 
 protected:
-	attotime read_delay;
+	bool is_floppy();
+	bool has_disk();
+	grid210x_disk_geometry get_geometry();
+	void read_sector(uint32_t sector, uint8_t *buffer);
+	void write_sector(uint32_t sector, const uint8_t *buffer);
+	void format_disk();
+	void raise_srq();
 
 private:
 	void process_command();
 	void thread_entry();
 	void listen_to_buffer();
-
-	void read_sector(uint32_t sector, uint8_t *buffer);
-	void write_sector(uint32_t sector, const uint8_t *data);
-	void raise_srq();
 
 	std::thread m_thread;
 
