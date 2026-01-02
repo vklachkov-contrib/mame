@@ -21,6 +21,7 @@ grid210x_device::grid210x_device(const machine_config &mconfig, const char *tag,
 void grid210x_device::device_start()
 {
 	m_emu = std::make_unique<grid210x_disk_emu>(
+		this,
 		[this](uint32_t sector, uint8_t *buffer) { read_sector(sector, buffer); },
 		[this](uint32_t sector, const uint8_t *data) { write_sector(sector, data); },
 		[this]() { raise_srq(); }
@@ -265,14 +266,19 @@ void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 }
 
 grid210x_disk_emu::grid210x_disk_emu(
+	grid210x_device *dev,
 	grid210x_reader_fn reader,
 	grid210x_writer_fn writer,
-	grid210x_raise_srq_fn raise_srq
+	grid210x_raise_srq_fn raise_srq,
+	attotime io_delay
 )
-	: m_read_sector(std::move(reader))
+	: m_dev(dev)
+	, m_read_sector(std::move(reader))
 	, m_write_sector(std::move(writer))
 	, m_raise_srq(std::move(raise_srq))
 {
+	m_io_delay = io_delay;
+	m_io_delay_timer = m_dev->timer_alloc(FUNC(grid210x_disk_emu::delay_io_req), this);
 	m_buffer.reserve(512);
 }
 
@@ -319,26 +325,35 @@ void grid210x_disk_emu::process_new_request(const std::vector<uint8_t> &buffer)
 		// printf("GET STATUS\n");
 		break;
 	case REQ_READ:
-		// printf("READ SECTOR\n");
-
-		m_buffer.resize(512, 0);
-		m_read_sector(req.sector, m_buffer.data());
-
-		m_raise_srq();
-		break;
 	case REQ_WRITE:
-		// printf("WRITE SECTOR\n");
-		// do nothing, wait next 512 bytes
-		break;
 	case REQ_FORMAT:
-		// printf("LOW LEVEL FORMAT DISK\n");
-		// todo: format image
+		m_io_delay_timer->adjust(m_io_delay);
 		break;
 	default:
 		throw std::runtime_error("found unsupported requests are not handled");
 	}
 
 	m_current_req = req;
+}
+
+TIMER_CALLBACK_MEMBER(grid210x_disk_emu::delay_io_req)
+{
+	const grid210x_disk_req req = m_current_req.value();
+	switch (req.code)
+	{
+	case REQ_READ:
+		m_buffer.resize(512, 0);
+		m_read_sector(req.sector, m_buffer.data());
+		break;
+	case REQ_WRITE:
+		break;
+	case REQ_FORMAT:
+		break;
+	default:
+		throw std::runtime_error("delay_io_req: unsupported request code");
+	}
+
+	m_raise_srq();
 }
 
 void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)

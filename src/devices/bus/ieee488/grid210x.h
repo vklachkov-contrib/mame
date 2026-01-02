@@ -274,9 +274,11 @@ class grid210x_disk_emu
 {
 public:
 	grid210x_disk_emu(
-		grid210x_reader_fn read_sector,
-		grid210x_writer_fn write_sector,
-		grid210x_raise_srq_fn raise_srq
+		grid210x_device *dev,
+		grid210x_reader_fn reader,
+		grid210x_writer_fn writer,
+		grid210x_raise_srq_fn raise_srq,
+		attotime io_delay = attotime::from_msec(5)
 	);
 
 	void reset();
@@ -289,6 +291,12 @@ public:
 	void get_status(uint16_t data_size);
 
 private:
+	grid210x_device *m_dev;
+
+	TIMER_CALLBACK_MEMBER(delay_io_req);
+	emu_timer *m_io_delay_timer;
+	attotime m_io_delay;
+
 	grid210x_reader_fn m_read_sector;
 	grid210x_writer_fn m_write_sector;
 	grid210x_raise_srq_fn m_raise_srq;
