@@ -53,40 +53,8 @@ struct grid210x_gpib_cmd
 	cmd_type type;
 	uint8_t addr;
 
-	static grid210x_gpib_cmd from_u8(uint8_t value)
-	{
-		if (value == 0b0001'0100)
-			return grid210x_gpib_cmd{ value, cmd_type::DCL, 0 };
-		else if (value == 0b0001'1000)
-			return grid210x_gpib_cmd{ value, cmd_type::SPE, 0 };
-		else if (value == 0b0001'1001)
-			return grid210x_gpib_cmd{ value, cmd_type::SPD, 0 };
-		else if (value == 0b0011'1111)
-			return grid210x_gpib_cmd{ value, cmd_type::UNL, 0 };
-		else if (value == 0b0101'1111)
-			return grid210x_gpib_cmd{ value, cmd_type::UNT, 0 };
-		else if ((value & 0b0110'0000) == 0b0010'0000)
-			return grid210x_gpib_cmd{ value, cmd_type::MLA, uint8_t(value & 0b0001'1111) };
-		else if ((value & 0b0110'0000) == 0b0100'0000)
-			return grid210x_gpib_cmd{ value, cmd_type::MTA, uint8_t(value & 0b0001'1111) };
-		else
-			return grid210x_gpib_cmd{ value, cmd_type::UNKNOWN, 0 };
-	}
-
-	void debug_log() const
-	{
-		switch (type)
-		{
-		case cmd_type::DCL: printf("DCL\n"); return;
-		case cmd_type::SPE: printf("SPE\n"); return;
-		case cmd_type::SPD: printf("SPD\n"); return;
-		case cmd_type::UNL: printf("UNL\n"); return;
-		case cmd_type::UNT: printf("UNT\n"); return;
-		case cmd_type::MLA: printf("MLA(%d)\n", addr); return;
-		case cmd_type::MTA: printf("MTA(%d)\n", addr); return;
-		case cmd_type::UNKNOWN: printf("UNKNOWN/%d\n", raw); return;
-		}
-	}
+	static grid210x_gpib_cmd from_u8(uint8_t value);
+	void debug_log() const;
 };
 
 class grid210x_gpib_sync
@@ -299,23 +267,25 @@ public:
 	grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay = attotime::from_msec(5));
 
 	void reset();
-
 	void process_buffer(const std::vector<uint8_t> &buffer);
-	void process_new_request(const std::vector<uint8_t> &buffer);
-
 	void talk(std::unique_ptr<grid210x_gpib_talker> &talker);
 
-	void get_status(uint16_t data_size);
-
 private:
-	grid210x_disk_io m_disk_io;
+	const char* tag;
 
-	TIMER_CALLBACK_MEMBER(delay_io_req);
-	emu_timer *m_io_delay_timer;
-	attotime m_io_delay;
+	grid210x_disk_io m_disk_io;
 
 	std::optional<grid210x_disk_req> m_current_req;
 	std::vector<uint8_t> m_buffer;
+
+	void process_new_request(const std::vector<uint8_t> &buffer);
+	void process_disk_request();
+
+	attotime m_io_delay;
+	emu_timer *m_io_delay_timer;
+	TIMER_CALLBACK_MEMBER(process_io_request);
+
+	void get_status(uint16_t data_size);
 };
 
 

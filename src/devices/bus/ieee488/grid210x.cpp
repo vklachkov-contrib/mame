@@ -4,6 +4,9 @@
 #include "emu.h"
 #include "grid210x.h"
 
+#include <cinttypes> // for PRIu32
+
+
 //**************************************************************************
 //  DEVICE DEFINITIONS
 //**************************************************************************
@@ -65,7 +68,7 @@ void grid210x_device::process_command()
 	while (true)
 	{
 		grid210x_gpib_cmd cmd = m_listener->start_command_handshake();
-		cmd.debug_log();
+		// cmd.debug_log();
 
 		switch (cmd.type)
 		{
@@ -97,7 +100,7 @@ void grid210x_device::process_command()
 			m_srq_raised = false;
 			break;
 		case grid210x_gpib_cmd::cmd_type::MLA:
-			// TODO: Check real address
+			// todo: check real address
 			if (cmd.addr == 5)
 			{
 				m_listener->end_handshake();
@@ -126,7 +129,7 @@ void grid210x_device::process_command()
 			}
 			break;
 		case grid210x_gpib_cmd::cmd_type::MTA:
-			// TODO: Check real address
+			// todo: check real address
 			if (cmd.addr == 5)
 			{
 				m_listener->end_handshake();
@@ -212,18 +215,24 @@ grid210x_disk_geometry grid210x_device::get_geometry()
 
 void grid210x_device::read_sector(uint32_t sector, uint8_t *buffer)
 {
+	osd_printf_verbose("%s io: read sector %d\n", tag(), sector);
+
 	fseek(sector * 512, SEEK_SET);
 	fread(buffer, 512);
 }
 
 void grid210x_device::write_sector(uint32_t sector, const uint8_t *buffer)
 {
+	osd_printf_verbose("%s io: write sector %d\n", tag(), sector);
+
 	fseek(sector * 512, SEEK_SET);
 	fwrite(buffer, 512);
 }
 
 void grid210x_device::format_disk()
 {
+	osd_printf_verbose("%s io: low level disk format\n", tag());
+
 	// stub
 }
 
@@ -259,10 +268,6 @@ grid210x_disk_req grid210x_disk_req::deserialize(const std::vector<uint8_t> &inp
 
 void grid210x_disk_resp::serialize(std::vector<uint8_t> &output) const
 {
-	if (!output.empty()) {
-		throw std::invalid_argument("Output buffer size must be empty");
-	}
-
 	output.resize(RESPONSE_LEN);
 
 	output[0] = status & 0xFF;
@@ -276,10 +281,6 @@ void grid210x_disk_resp::serialize(std::vector<uint8_t> &output) const
 
 void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 {
-	if (!output.empty()) {
-		throw std::invalid_argument("Output buffer size must be empty");
-	}
-
 	output.resize(DISK_STATUS_MAX_LEN);
 
 	output[0] = sector_size & 0xFF;
@@ -314,9 +315,10 @@ void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 
 grid210x_disk_emu::grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay)
 {
+	tag = dev->tag();
 	m_disk_io = disk_io;
 	m_io_delay = io_delay;
-	m_io_delay_timer = dev->timer_alloc(FUNC(grid210x_disk_emu::delay_io_req), this);
+	m_io_delay_timer = dev->timer_alloc(FUNC(grid210x_disk_emu::process_io_request), this);
 	m_buffer.reserve(512);
 }
 
@@ -328,8 +330,6 @@ void grid210x_disk_emu::reset()
 
 void grid210x_disk_emu::process_buffer(const std::vector<uint8_t> &buffer)
 {
-	printf("PROCESS BUFFER %zu\n", buffer.size());
-
 	if (m_current_req.has_value())
 	{
 		const grid210x_disk_req req = m_current_req.value();
@@ -346,105 +346,177 @@ void grid210x_disk_emu::process_buffer(const std::vector<uint8_t> &buffer)
 
 void grid210x_disk_emu::process_new_request(const std::vector<uint8_t> &buffer)
 {
-	// printf("PROCESS NEW REQUEST (%zu bytes)\n", buffer.size());
+	m_current_req.reset();
 
 	if (buffer.size() != REQUEST_LEN) {
-		throw std::runtime_error("bad requests are not handled");
+		// Do nothing, just return an error when we are asked to talk.
+		osd_printf_verbose(
+			"%s emu: received unusual %zu bytes request, expected %d bytes\n",
+			tag, buffer.size(), REQUEST_LEN);
 		return;
 	}
 
 	const grid210x_disk_req req = grid210x_disk_req::deserialize(buffer);
+
 	switch (req.code)
 	{
 	case REQ_INITIALIZE:
-		// printf("INITIALIZE\n");
+		// do nothing, everything is already initialized.
+		osd_printf_verbose("%s emu: received Initialize request\n", tag);
 		break;
 	case REQ_GET_STATUS:
-		// printf("GET STATUS\n");
+		// do nothing, this command requires no action.
+		osd_printf_verbose("%s emu: received GetStatus(size=%d) request\n", tag, req.data_size);
 		break;
 	case REQ_WRITE:
-		// wait 512 bytes
+		// after this command, 512 more bytes are expected.
+		osd_printf_verbose("%s emu: received Write(sector=%" PRIu32 ", mode=%d) request\n", tag, req.sector, req.mode);
 		break;
 	case REQ_READ:
+		osd_printf_verbose("%s emu: received Read(sector=%" PRIu32 ") request\n", tag, req.sector);
+		m_io_delay_timer->adjust(m_io_delay);
+		break;
 	case REQ_FORMAT:
+		osd_printf_verbose("%s emu: received Format request\n", tag);
 		m_io_delay_timer->adjust(m_io_delay);
 		break;
 	default:
-		throw std::runtime_error("found unsupported requests are not handled");
+		// do nothing, just return an error when we are asked to talk.
+		osd_printf_verbose(
+			"%s emu: received unsupported request %d with sector=%" PRIu32 ", data_size=%d, mode=%d\n",
+			tag, req.code, req.sector, req.data_size, req.mode);
+		break;
 	}
 
 	m_current_req = req;
 }
 
-TIMER_CALLBACK_MEMBER(grid210x_disk_emu::delay_io_req)
+TIMER_CALLBACK_MEMBER(grid210x_disk_emu::process_io_request)
 {
-	const grid210x_disk_req req = m_current_req.value();
-	switch (req.code)
+	if (m_disk_io.has_disk())
 	{
-	case REQ_READ:
-		m_buffer.resize(512, 0);
-		m_disk_io.read_sector(req.sector, m_buffer.data());
-		break;
-
-	case REQ_WRITE:
-		if (m_buffer.size() != 512)
-			throw std::runtime_error("buffer size for write must be 512 bytes");
-		if (req.mode == 0)
-			m_disk_io.write_sector(req.sector, m_buffer.data());
-		m_buffer.clear();
-		break;
-
-	case REQ_FORMAT:
-		m_disk_io.format_disk();
-		break;
-
-	default:
-		throw std::runtime_error("delay_io_req: unsupported request code");
+		process_disk_request();
+	}
+	else
+	{
+		osd_printf_verbose("%s emu: disk not inserted\n", tag);
+		(grid210x_disk_resp { RESP_NOT_READY, 0, 0, 0 }).serialize(m_buffer);
 	}
 
 	m_disk_io.raise_srq();
 }
 
-void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
+void grid210x_disk_emu::process_disk_request()
 {
-	// printf("TALK BUFFER\n");
-
-	if (!m_current_req.has_value())
-	{
-		throw std::runtime_error("talk without request???");
-	}
-
-	// fixme: check disk present using m_disk_io.has_disk
-
 	const grid210x_disk_req req = m_current_req.value();
 	switch (req.code)
 	{
-	case REQ_INITIALIZE:
-		(grid210x_disk_resp { RESP_OK, 0, 0, 0 }).serialize(m_buffer);
-		break;
-	case REQ_GET_STATUS:
-		get_status(req.data_size);
-		break;
 	case REQ_READ:
-		// data already in buffer
+	{
+		const grid210x_disk_geometry geom = m_disk_io.get_geometry();
+		if (req.sector >= geom.sector_count)
+		{
+			osd_printf_verbose(
+				"%s emu: out of bounds sector %d read, total sectors is %d\n",
+				tag, req.sector, geom.sector_count);
+
+			(grid210x_disk_resp { RESP_OUT_OF_BOUNDS, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		}
+
+		// todo: handle read errors
+		m_buffer.resize(512, 0);
+		m_disk_io.read_sector(req.sector, m_buffer.data());
+
 		break;
+	}
+
 	case REQ_WRITE:
-		(grid210x_disk_resp {
-			RESP_OK, 0, static_cast<uint16_t>(req.mode == 1 ? 0xFFFF : req.sector), 0
-		}).serialize(m_buffer);
+	{
+		if (m_buffer.size() != 512)
+		{
+			reset();
+
+			(grid210x_disk_resp { RESP_UNSUPPORTED, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		}
+
+		if (req.mode == 1)
+		{
+			// validate the data that the laptop received from us in the previous request.
+			// can be safely ignored.
+			(grid210x_disk_resp { RESP_OK, 0, 0xFFFF, 0 }).serialize(m_buffer);
+			break;
+		}
+
+		if (req.mode != 0)
+		{
+			(grid210x_disk_resp { RESP_UNSUPPORTED, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		}
+
+		const grid210x_disk_geometry geom = m_disk_io.get_geometry();
+		if (req.sector >= geom.sector_count)
+		{
+			osd_printf_verbose(
+				"%s emu: out of bounds write to sector %d, total sectors is %d\n",
+				tag, req.sector, geom.sector_count);
+			
+			(grid210x_disk_resp { RESP_OUT_OF_BOUNDS, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		}
+
+		// todo: handle write errors
+		m_disk_io.write_sector(req.sector, m_buffer.data());
+
+		(grid210x_disk_resp { RESP_OK, 0, static_cast<uint16_t>(req.sector), 0 }).serialize(m_buffer);
 		break;
+	}
+
 	case REQ_FORMAT:
+	{
+		// todo: handle format errors
+		m_disk_io.format_disk();
+
 		(grid210x_disk_resp { RESP_OK, 0, 0, 0 }).serialize(m_buffer);
 		break;
+	}
+
 	default:
-		throw std::runtime_error("found unsupported requests are not handled");
+		throw std::runtime_error("process_disk_request: unexpected request code");
+	}
+}
+
+void grid210x_disk_emu::talk(std::unique_ptr<grid210x_gpib_talker> &talker)
+{
+	if (m_current_req.has_value())
+	{
+		const grid210x_disk_req req = m_current_req.value();
+		switch (req.code)
+		{
+		case REQ_INITIALIZE:
+			(grid210x_disk_resp { RESP_OK, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		case REQ_GET_STATUS:
+			get_status(req.data_size);
+			break;
+		case REQ_READ:
+		case REQ_WRITE:
+		case REQ_FORMAT:
+			// data already in buffer, prepared by grid210x_disk_emu::process_io_request.
+			break;
+		default:
+			(grid210x_disk_resp { RESP_UNSUPPORTED, 0, 0, 0 }).serialize(m_buffer);
+			break;
+		}
+	}
+	else
+	{
+		(grid210x_disk_resp { RESP_UNSUPPORTED, 0, 0, 0 }).serialize(m_buffer);
 	}
 
 	if (m_buffer.size() == 0)
-	{
-		printf("code=%d",req.code);
-		throw std::runtime_error("empty talk?????");
-	}
+		throw std::runtime_error("validation error: no data to send to laptop");
 
 	talker->send_bytes(m_buffer);
 
@@ -484,6 +556,57 @@ void grid210x_disk_emu::get_status(uint16_t data_size)
 //**************************************************************************
 //  GPIB IMPLEMENTATION
 //**************************************************************************
+
+grid210x_gpib_cmd grid210x_gpib_cmd::from_u8(uint8_t value)
+{
+	if (value == 0b0001'0100)
+		return grid210x_gpib_cmd{ value, cmd_type::DCL, 0 };
+	else if (value == 0b0001'1000)
+		return grid210x_gpib_cmd{ value, cmd_type::SPE, 0 };
+	else if (value == 0b0001'1001)
+		return grid210x_gpib_cmd{ value, cmd_type::SPD, 0 };
+	else if (value == 0b0011'1111)
+		return grid210x_gpib_cmd{ value, cmd_type::UNL, 0 };
+	else if (value == 0b0101'1111)
+		return grid210x_gpib_cmd{ value, cmd_type::UNT, 0 };
+	else if ((value & 0b0110'0000) == 0b0010'0000)
+		return grid210x_gpib_cmd{ value, cmd_type::MLA, uint8_t(value & 0b0001'1111) };
+	else if ((value & 0b0110'0000) == 0b0100'0000)
+		return grid210x_gpib_cmd{ value, cmd_type::MTA, uint8_t(value & 0b0001'1111) };
+	else
+		return grid210x_gpib_cmd{ value, cmd_type::UNKNOWN, 0 };
+}
+
+void grid210x_gpib_cmd::debug_log() const
+{
+	switch (type)
+	{
+	case cmd_type::DCL:
+		osd_printf_verbose("gpib: DCL\n");
+		break;
+	case cmd_type::SPE:
+		osd_printf_verbose("gpib: SPE\n");
+		break;
+	case cmd_type::SPD:
+		osd_printf_verbose("gpib: SPD\n");
+		break;
+	case cmd_type::UNL:
+		osd_printf_verbose("gpib: UNL\n");
+		break;
+	case cmd_type::UNT:
+		osd_printf_verbose("gpib: UNT\n");
+		break;
+	case cmd_type::MLA:
+		osd_printf_verbose("gpib: MLA(%d)\n", addr);
+		break;
+	case cmd_type::MTA:
+		osd_printf_verbose("gpib: MTA(%d)\n", addr);
+		break;
+	case cmd_type::UNKNOWN:
+		osd_printf_verbose("gpib: unknown cmd 0x%x\n", raw);
+		break;
+	}
+}
 
 void grid210x_gpib_sync::notify_and_wait()
 {
