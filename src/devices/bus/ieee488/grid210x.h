@@ -57,11 +57,12 @@ struct grid210x_gpib_cmd
 	void debug_log() const;
 };
 
-class grid210x_gpib_sync
+class grid210x_thread_sync
 {
 public:
-	void notify_and_wait();
-	void wait_changes();
+	void shutdown();
+	void sync_with_thread();
+	void wait_main_thread();
 
 private:
 	enum class state
@@ -71,7 +72,10 @@ private:
 		changed,
 		ready,
 		process,
+		shutdown
 	};
+
+	void wait_state(std::unique_lock<std::mutex> &lock, state s);
 
 	std::mutex m_mutex;
 	std::condition_variable m_cv;
@@ -81,7 +85,7 @@ private:
 class grid210x_gpib_listener
 {
 public:
-	grid210x_gpib_listener(grid210x_device *dev, ieee488_device *bus, grid210x_gpib_sync *sync);
+	grid210x_gpib_listener(grid210x_device *dev, ieee488_device *bus, grid210x_thread_sync *sync);
 
 	grid210x_gpib_cmd start_command_handshake();
 	void end_handshake();
@@ -91,13 +95,13 @@ public:
 private:
 	grid210x_device *m_dev;
 	ieee488_device *m_bus;
-	grid210x_gpib_sync *m_sync;
+	grid210x_thread_sync *m_thread_sync;
 };
 
 class grid210x_gpib_talker
 {
 public:
-	grid210x_gpib_talker(grid210x_device *dev, ieee488_device *bus, grid210x_gpib_sync *sync);
+	grid210x_gpib_talker(grid210x_device *dev, ieee488_device *bus, grid210x_thread_sync *sync);
 
 	void send_bytes(std::vector<uint8_t> &bytes);
 	void send_serial_poll_response(uint8_t byte);
@@ -108,7 +112,7 @@ private:
 
 	grid210x_device *m_dev;
 	ieee488_device *m_bus;
-	grid210x_gpib_sync *m_sync;
+	grid210x_thread_sync *m_thread_sync;
 };
 
 
@@ -293,6 +297,12 @@ private:
 //  DEVICE DEFINITION
 //**************************************************************************
 
+class grid210x_device_shutdown : public std::exception {
+	const char* what() const noexcept override {
+		return "grid210x_device shutdown";
+	}
+};
+
 class grid210x_device : public device_t,
 						public device_ieee488_interface,
 						public device_image_interface
@@ -308,14 +318,14 @@ protected:
 
 	// device_ieee488_interface overrides
 	virtual bool ieee488_allow_recursion() const override { return false; };
-	virtual void ieee488_atn(int state)  override { /*printf("ATN changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_eoi(int state)  override { /*printf("EOI changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_dav(int state)  override { /*printf("DAV changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_nrfd(int state) override { /*printf("NRFD changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_ndac(int state) override { /*printf("NDAC changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_ifc(int state)  override { /*printf("IFC changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_srq(int state)  override { /*printf("SRQ changed\n");*/ m_gpib_sync.notify_and_wait(); };
-	virtual void ieee488_ren(int state)  override { /*printf("REN changed\n");*/ m_gpib_sync.notify_and_wait(); };
+	virtual void ieee488_atn(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_eoi(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_dav(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_nrfd(int state) override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_ndac(int state) override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_ifc(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_srq(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_ren(int state)  override { m_thread_sync.sync_with_thread(); };
 
 	// image-level overrides
 	virtual bool is_readable()  const noexcept override { return true; }
@@ -336,7 +346,7 @@ protected:
 	void raise_srq();
 
 private:
-	void process_command();
+	void listen_gpib_commands();
 	void thread_entry();
 	void listen_to_buffer();
 
@@ -344,7 +354,7 @@ private:
 
 	std::vector<uint8_t> m_buffer;
 
-	grid210x_gpib_sync m_gpib_sync;
+	grid210x_thread_sync m_thread_sync;
 
 	std::unique_ptr<grid210x_gpib_listener> m_listener;
 	std::unique_ptr<grid210x_gpib_talker> m_talker;

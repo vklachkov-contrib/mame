@@ -37,33 +37,31 @@ void grid210x_device::device_start()
 		}
 	);
 
-	m_listener = std::make_unique<grid210x_gpib_listener>(this, m_bus, &m_gpib_sync);
-	m_talker = std::make_unique<grid210x_gpib_talker>(this, m_bus, &m_gpib_sync);
+	m_listener = std::make_unique<grid210x_gpib_listener>(this, m_bus, &m_thread_sync);
+	m_talker = std::make_unique<grid210x_gpib_talker>(this, m_bus, &m_thread_sync);
 
 	m_thread = std::thread([this]() { thread_entry(); });
 }
 
 void grid210x_device::device_stop()
 {
-	// unimplemented
+	m_thread_sync.shutdown();
+	m_thread.join();
 }
 
 void grid210x_device::thread_entry()
 {
-	// try
-    // {
-        while (true)
-        {
-            process_command();
-        }
-    // }
-    // catch (std::exception e)
-    // {
-		// stub
-	// }
+	try
+	{
+		listen_gpib_commands();
+	}
+	catch (grid210x_device_shutdown e)
+	{
+		osd_printf_verbose("%s: thread shutdown\n", tag());
+	}
 }
 
-void grid210x_device::process_command()
+void grid210x_device::listen_gpib_commands()
 {
 	while (true)
 	{
@@ -76,6 +74,7 @@ void grid210x_device::process_command()
 			m_listener->end_handshake();
 			m_emu->reset();
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::SPE:
 			m_serial_poll = true;
 			if (m_srq_raised)
@@ -87,6 +86,7 @@ void grid210x_device::process_command()
 				m_listener->unexpected_command();
 			}
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::SPD:
 			if (m_srq_raised)
 			{
@@ -99,6 +99,7 @@ void grid210x_device::process_command()
 			m_serial_poll = false;
 			m_srq_raised = false;
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::MLA:
 			// todo: check real address
 			if (cmd.addr == 5)
@@ -113,6 +114,7 @@ void grid210x_device::process_command()
 				m_listener->unexpected_command();
 			}
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::UNL:
 			if (m_listening)
 			{
@@ -128,6 +130,7 @@ void grid210x_device::process_command()
 				m_listener->unexpected_command();
 			}
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::MTA:
 			// todo: check real address
 			if (cmd.addr == 5)
@@ -145,6 +148,7 @@ void grid210x_device::process_command()
 				m_listener->unexpected_command();
 			}
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::UNT:
 			if (m_talking)
 			{
@@ -156,9 +160,13 @@ void grid210x_device::process_command()
 				m_listener->unexpected_command();
 			}
 			break;
+
 		case grid210x_gpib_cmd::cmd_type::UNKNOWN:
 			m_listener->unexpected_command();
 			break;
+
+		default:
+			throw std::runtime_error("process_command: unhandled gpib command");
 		}
 	}
 }
@@ -608,53 +616,65 @@ void grid210x_gpib_cmd::debug_log() const
 	}
 }
 
-void grid210x_gpib_sync::notify_and_wait()
+void grid210x_thread_sync::shutdown()
 {
 	std::unique_lock<std::mutex> lock(m_mutex);
 
-	m_cv.wait(lock, [this]() {
-		return this->m_state == state::waiting;
-	});
+	m_state = state::shutdown;
+	m_cv.notify_all();
+}
+
+void grid210x_thread_sync::sync_with_thread()
+{
+	std::unique_lock<std::mutex> lock(m_mutex);
+
+	wait_state(lock, state::waiting);
 
 	m_state = state::changed;
 	m_cv.notify_all();
 
-	m_cv.wait(lock, [this]() {
-		return this->m_state == state::ready;
-	});
+	wait_state(lock, state::ready);
 
 	m_state = state::process;
 	m_cv.notify_all();
 
-	m_cv.wait(lock, [this]() {
-		return this->m_state == state::waiting;
-	});
+	wait_state(lock, state::waiting);
 }
 
-void grid210x_gpib_sync::wait_changes()
+void grid210x_thread_sync::wait_main_thread()
 {
 	std::unique_lock<std::mutex> lock(m_mutex);
 
 	m_state = state::waiting;
 	m_cv.notify_all();
 
-	m_cv.wait(lock, [this]() {
-		return this->m_state == state::changed;
-	});
+	wait_state(lock, state::changed);
 
 	m_state = state::ready;
 	m_cv.notify_all();
 
-	m_cv.wait(lock, [this]() {
-		return this->m_state == state::process;
+	wait_state(lock, state::process);
+}
+
+void grid210x_thread_sync::wait_state(std::unique_lock<std::mutex> &lock, state s)
+{
+	m_cv.wait(lock, [this, s]() {
+		if (m_state == state::shutdown)
+		{
+			throw grid210x_device_shutdown();
+		}
+		else
+		{
+			return m_state == s;
+		}
 	});
 }
 
-grid210x_gpib_listener::grid210x_gpib_listener(grid210x_device* dev, ieee488_device *bus, grid210x_gpib_sync *sync)
+grid210x_gpib_listener::grid210x_gpib_listener(grid210x_device* dev, ieee488_device *bus, grid210x_thread_sync *sync)
 {
-	this->m_dev = dev;
-	this->m_bus = bus;
-	this->m_sync = sync;
+	m_dev = dev;
+	m_bus = bus;
+	m_thread_sync = sync;
 }
 
 grid210x_gpib_cmd grid210x_gpib_listener::start_command_handshake()
@@ -664,7 +684,7 @@ grid210x_gpib_cmd grid210x_gpib_listener::start_command_handshake()
 		if (m_bus->atn_r() == 1)
 		{
 			m_bus->ndac_w(m_dev, 1);
-			m_sync->wait_changes();
+			m_thread_sync->wait_main_thread();
 			continue;
 		}
 
@@ -672,7 +692,7 @@ grid210x_gpib_cmd grid210x_gpib_listener::start_command_handshake()
 
 		if (m_bus->dav_r() == 1)
 		{
-			m_sync->wait_changes();
+			m_thread_sync->wait_main_thread();
 			continue;
 		}
 
@@ -689,7 +709,7 @@ void grid210x_gpib_listener::end_handshake()
 	m_bus->ndac_w(m_dev, 1);
 
 	while (m_bus->dav_r() == 0)
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	m_bus->ndac_w(m_dev, 0);
 	m_bus->nrfd_w(m_dev, 1);
@@ -700,7 +720,7 @@ void grid210x_gpib_listener::unexpected_command()
 	m_bus->ndac_w(m_dev, 1);
 
 	while (m_bus->dav_r() == 0)
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	m_bus->nrfd_w(m_dev, 1);
 }
@@ -708,7 +728,7 @@ void grid210x_gpib_listener::unexpected_command()
 uint8_t grid210x_gpib_listener::handshake_byte()
 {
 	while (m_bus->dav_r() == 1)
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	const uint8_t byte = ~m_bus->dio_r();
 
@@ -717,11 +737,11 @@ uint8_t grid210x_gpib_listener::handshake_byte()
 	return byte;
 }
 
-grid210x_gpib_talker::grid210x_gpib_talker(grid210x_device* dev, ieee488_device *bus, grid210x_gpib_sync *sync)
+grid210x_gpib_talker::grid210x_gpib_talker(grid210x_device* dev, ieee488_device *bus, grid210x_thread_sync *sync)
 {
-	this->m_dev = dev;
-	this->m_bus = bus;
-	this->m_sync = sync;
+	m_dev = dev;
+	m_bus = bus;
+	m_thread_sync = sync;
 }
 
 void grid210x_gpib_talker::send_bytes(std::vector<uint8_t> &bytes)
@@ -752,7 +772,7 @@ void grid210x_gpib_talker::setup_bus()
 void grid210x_gpib_talker::send_byte(uint8_t byte, bool eoi)
 {
 	while (!(m_bus->ndac_r() == 0 && m_bus->nrfd_r() == 1))
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	if (eoi) m_bus->eoi_w(m_dev, 0);
 	m_bus->dio_w(m_dev, ~byte);
@@ -760,10 +780,10 @@ void grid210x_gpib_talker::send_byte(uint8_t byte, bool eoi)
 	m_bus->dav_w(m_dev, 0);
 
 	while (m_bus->nrfd_r() == 0)
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	while (m_bus->ndac_r() == 0)
-		m_sync->wait_changes();
+		m_thread_sync->wait_main_thread();
 
 	m_bus->dav_w(m_dev, 1);
 
