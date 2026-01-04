@@ -13,6 +13,8 @@
 #pragma once
 
 #include "ieee488.h"
+#include "imagedev/harddriv.h"
+#include "imagedev/floppy.h"
 
 #include <atomic>
 #include <cassert>
@@ -28,6 +30,7 @@
 #include <vector>
 
 
+template <class BaseDevice>
 class grid210x_device;
 
 
@@ -85,7 +88,7 @@ private:
 class grid210x_gpib_listener
 {
 public:
-	grid210x_gpib_listener(grid210x_device *dev, ieee488_device *bus, grid210x_thread_sync *sync);
+	grid210x_gpib_listener(device_t *dev, ieee488_device *bus, grid210x_thread_sync *sync);
 
 	grid210x_gpib_cmd start_command_handshake();
 	void end_handshake();
@@ -93,7 +96,7 @@ public:
 	uint8_t handshake_byte();
 
 private:
-	grid210x_device *m_dev;
+	device_t *m_dev;
 	ieee488_device *m_bus;
 	grid210x_thread_sync *m_thread_sync;
 };
@@ -101,7 +104,7 @@ private:
 class grid210x_gpib_talker
 {
 public:
-	grid210x_gpib_talker(grid210x_device *dev, ieee488_device *bus, grid210x_thread_sync *sync);
+	grid210x_gpib_talker(device_t *dev, ieee488_device *bus, grid210x_thread_sync *sync);
 
 	void send_bytes(std::vector<uint8_t> &bytes);
 	void send_serial_poll_response(uint8_t byte);
@@ -110,7 +113,7 @@ private:
 	void setup_bus();
 	void send_byte(uint8_t byte, bool eoi);
 
-	grid210x_device *m_dev;
+	device_t *m_dev;
 	ieee488_device *m_bus;
 	grid210x_thread_sync *m_thread_sync;
 };
@@ -268,7 +271,7 @@ struct grid210x_disk_io
 class grid210x_disk_emu
 {
 public:
-	grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay = attotime::from_msec(5));
+	grid210x_disk_emu(device_t *dev, grid210x_disk_io disk_io, attotime io_delay = attotime::from_msec(5));
 
 	void reset();
 	void process_buffer(const std::vector<uint8_t> &buffer);
@@ -294,7 +297,7 @@ private:
 
 
 //**************************************************************************
-//  DEVICE DEFINITION
+//  DEVICES DEFINITION
 //**************************************************************************
 
 class grid210x_device_shutdown : public std::exception {
@@ -303,52 +306,42 @@ class grid210x_device_shutdown : public std::exception {
 	}
 };
 
-class grid210x_device : public device_t,
-						public device_ieee488_interface,
-						public device_image_interface
+template <class BaseDevice>
+class grid210x_device : public BaseDevice,
+						public device_ieee488_interface
 {
 public:
 	// construction/destruction
-	grid210x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+	grid210x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, uint8_t gpib_address);
 
 protected:
-	// device-level overrides
-	virtual void device_start() override ATTR_COLD;
-	virtual void device_stop() override ATTR_COLD;
+	void start();
+	void stop();
 
 	// device_ieee488_interface overrides
 	virtual bool ieee488_allow_recursion() const override { return false; };
-	virtual void ieee488_atn(int state)  override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_eoi(int state)  override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_dav(int state)  override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_nrfd(int state) override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_ndac(int state) override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_ifc(int state)  override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_srq(int state)  override { m_thread_sync.sync_with_thread(); };
-	virtual void ieee488_ren(int state)  override { m_thread_sync.sync_with_thread(); };
+	virtual void ieee488_atn(int state)  override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_eoi(int state)  override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_dav(int state)  override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_nrfd(int state) override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_ndac(int state) override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_ifc(int state)  override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_srq(int state)  override { m_thread_sync.sync_with_thread(); }
+	virtual void ieee488_ren(int state)  override { m_thread_sync.sync_with_thread(); }
 
-	// image-level overrides
-	virtual bool is_readable()  const noexcept override { return true; }
-	virtual bool is_writeable() const noexcept override { return true; }
-	virtual bool is_creatable() const noexcept override { return false; }
-	virtual bool is_reset_on_load() const noexcept override { return false; }
-	virtual const char *file_extensions() const noexcept override { return "img"; }
-	virtual const char *image_type_name() const noexcept override { return "floppydisk"; }
-	virtual const char *image_brief_type_name() const noexcept override { return "flop"; }
-
-protected:
-	bool is_floppy();
-	bool has_disk();
-	grid210x_disk_geometry get_geometry();
-	void read_sector(uint32_t sector, uint8_t *buffer);
-	void write_sector(uint32_t sector, const uint8_t *buffer);
-	void format_disk();
-	void raise_srq();
+	// for children
+	virtual bool is_floppy() const noexcept = 0;
+	virtual bool has_disk() = 0;
+	virtual grid210x_disk_geometry get_geometry() const = 0;
+	virtual void read_sector(uint32_t sector, uint8_t *buffer) = 0;
+	virtual void write_sector(uint32_t sector, const uint8_t *buffer) = 0;
+	virtual void format_disk() = 0;
 
 private:
 	void listen_gpib_commands();
 	void thread_entry();
 	void listen_to_buffer();
+	void raise_srq();
 
 	std::thread m_thread;
 
@@ -356,6 +349,7 @@ private:
 
 	grid210x_thread_sync m_thread_sync;
 
+	uint8_t m_gpib_address;
 	std::unique_ptr<grid210x_gpib_listener> m_listener;
 	std::unique_ptr<grid210x_gpib_talker> m_talker;
 
@@ -367,7 +361,53 @@ private:
 	std::unique_ptr<grid210x_disk_emu> m_emu;
 };
 
-// device type definition
-DECLARE_DEVICE_TYPE(GRID210X, grid210x_device)
+class grid2101_device : public grid210x_device<harddisk_image_device>
+{
+public:
+	grid2101_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+
+protected:
+	// device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_stop() override ATTR_COLD;
+
+	// grid210x_device overrides
+	virtual bool is_floppy() const noexcept override { return false; }
+	virtual bool has_disk() override;
+	virtual grid210x_disk_geometry get_geometry() const override;
+	virtual void read_sector(uint32_t sector, uint8_t *buffer) override;
+	virtual void write_sector(uint32_t sector, const uint8_t *buffer) override;
+	virtual void format_disk() override;
+};
+
+DECLARE_DEVICE_TYPE(GRID2101, grid2101_device)
+
+class grid2102_device : public grid210x_device<floppy_image_device>
+{
+public:
+	grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
+
+protected:
+	// device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_stop() override ATTR_COLD;
+
+	// floppy_image_device overrides
+	virtual const char *image_interface() const noexcept override { return "grid_gpib"; }
+	virtual void setup_characteristics() override;
+
+	// grid210x_device overrides
+	virtual bool is_floppy() const noexcept override { return false; }
+	virtual bool has_disk() override;
+	virtual grid210x_disk_geometry get_geometry() const override;
+	virtual void read_sector(uint32_t sector, uint8_t *buffer) override;
+	virtual void write_sector(uint32_t sector, const uint8_t *buffer) override;
+	virtual void format_disk() override;
+
+private:
+	static void setup_formats(format_registration &fr);
+};
+
+DECLARE_DEVICE_TYPE(GRID2102, grid2102_device)
 
 #endif // MAME_BUS_IEEE488_GRID210X_H

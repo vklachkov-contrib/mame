@@ -4,24 +4,198 @@
 #include "emu.h"
 #include "grid210x.h"
 
+#include "formats/flopimg.h"
+#include "formats/pc_dsk.h"
+#include "formats/imd_dsk.h"
+
+#include <algorithm> // for std::min
 #include <cinttypes> // for PRIu32
 
 
 //**************************************************************************
-//  DEVICE DEFINITIONS
+//  GRID 2102 FLOPPY DEVICE IMPLEMENTATION
 //**************************************************************************
 
-DEFINE_DEVICE_TYPE(GRID210X, grid210x_device, "grid210x", "GRiD 210X GPIB Disk")
+DEFINE_DEVICE_TYPE(GRID2102, grid2102_device, "grid2102_floppy", "GRiD 2102 Floppy")
 
-grid210x_device::grid210x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, GRID210X, tag, owner, clock)
+grid2102_device::grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: grid210x_device<floppy_image_device>(mconfig, GRID2102, tag, owner, clock, 5)
+{
+}
+
+void grid2102_device::device_start()
+{
+	floppy_image_device::device_start();
+	grid210x_device<floppy_image_device>::start();
+}
+
+void grid2102_device::device_stop()
+{
+	grid210x_device<floppy_image_device>::stop();
+	floppy_image_device::device_stop();
+}
+
+void grid2102_device::setup_characteristics()
+{
+	m_form_factor = floppy_image::FF_525;
+	m_tracks = 40;
+	m_sides = 2;
+	set_rpm(300);
+	add_variant(floppy_image::DSDD);
+
+	set_formats(grid2102_device::setup_formats);
+}
+
+void grid2102_device::setup_formats(format_registration &fr)
+{
+	fr.add(FLOPPY_PC_FORMAT);
+	fr.add(FLOPPY_IMD_FORMAT);
+}
+
+bool grid2102_device::has_disk()
+{
+	return is_loaded();
+}
+
+grid210x_disk_geometry grid2102_device::get_geometry() const
+{
+	// For the GRiD Compass all diskettes were 360KB.
+	// The geometry values were taken from the firmware:
+	// https://github.com/vklachkov/grid-compass-fdd-2102/tree/main/firmware%20(300237-02).
+	//
+	// The values here correspond to the parameters in setup_characteristics().
+	return grid210x_disk_geometry
+	{
+		/* sector_count        */ 720,
+		/* sectors_per_track   */ 9,
+		/* tracks_per_cylinder */ 2,
+		/* interleave_factor   */ 5,
+		/* second_side_count   */ 1,
+		/* unused              */ 0,
+	};
+}
+
+void grid2102_device::read_sector(uint32_t sector, uint8_t *buffer)
+{
+	osd_printf_verbose("%s io: read sector %d\n", tag(), sector);
+
+	// todo
+}
+
+void grid2102_device::write_sector(uint32_t sector, const uint8_t *buffer)
+{
+	osd_printf_verbose("%s io: write sector %d\n", tag(), sector);
+
+	// todo
+}
+
+void grid2102_device::format_disk()
+{
+	osd_printf_verbose("%s io: low level disk format\n", tag());
+
+	std::vector<uint8_t> uninit_sector(512, 0xe5);
+	std::fill_n(uninit_sector.begin(), 8, 0xff);
+
+	const grid210x_disk_geometry geom = get_geometry();
+	for (size_t i = 0; i < geom.sector_count; i++)
+	{
+		write_sector(i, uninit_sector.data());
+	}
+}
+
+//**************************************************************************
+//  GRID 2101 HDD DEVICE IMPLEMENTATION
+//**************************************************************************
+
+DEFINE_DEVICE_TYPE(GRID2101, grid2101_device, "grid2101_hdd", "GRiD 2101 HDD")
+
+grid2101_device::grid2101_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: grid210x_device<harddisk_image_device>(mconfig, GRID2101, tag, owner, clock, 4)
+{
+}
+
+void grid2101_device::device_start()
+{
+	harddisk_image_device::device_start();
+	grid210x_device<harddisk_image_device>::start();
+}
+
+void grid2101_device::device_stop()
+{
+	grid210x_device<harddisk_image_device>::stop();
+	harddisk_image_device::device_stop();
+}
+
+bool grid2101_device::has_disk()
+{
+	return is_loaded();
+}
+
+grid210x_disk_geometry grid2101_device::get_geometry() const
+{
+	const auto info = get_info();
+
+	const auto clamp_uint16t = [](uint32_t value) {
+		return static_cast<uint16_t>(std::min<uint32_t>(value, uint16_t(0xFFFF)));
+	};
+
+	return grid210x_disk_geometry
+	{
+		/* sector_count        */ clamp_uint16t(info.cylinders * info.heads * info.sectors),
+		/* sectors_per_track   */ clamp_uint16t(info.sectors),
+		/* tracks_per_cylinder */ clamp_uint16t(info.heads),
+		/* interleave_factor   */ 0,
+		/* second_side_count   */ 0,
+		/* num_cylinders       */ clamp_uint16t(info.cylinders),
+	};
+}
+
+void grid2101_device::read_sector(uint32_t sector, uint8_t *buffer)
+{
+	osd_printf_verbose("%s io: read sector %d\n", tag(), sector);
+	read(sector, buffer);
+}
+
+void grid2101_device::write_sector(uint32_t sector, const uint8_t *buffer)
+{
+	osd_printf_verbose("%s io: write sector %d\n", tag(), sector);
+	write(sector, buffer);
+}
+
+void grid2101_device::format_disk()
+{
+	osd_printf_verbose("%s io: low level disk format\n", tag());
+
+	std::vector<uint8_t> uninit_sector(512, 0xe5);
+	std::fill_n(uninit_sector.begin(), 8, 0xff);
+
+	const grid210x_disk_geometry geom = get_geometry();
+	for (size_t i = 0; i < geom.sector_count; i++)
+	{
+		write_sector(i, uninit_sector.data());
+	}
+}
+
+
+//**************************************************************************
+//  BASE DEVICE IMPLEMENTATION
+//**************************************************************************
+
+template <class BaseDevice>
+grid210x_device<BaseDevice>::grid210x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock, uint8_t gpib_address)
+	: BaseDevice(mconfig, type, tag, owner, clock)
 	, device_ieee488_interface(mconfig, *this)
-	, device_image_interface(mconfig, *this)
+	, m_gpib_address(gpib_address)
+	, m_talking(false)
+	, m_listening(false)
+	, m_serial_poll(false)
+	, m_srq_raised(false)
 {
 	m_buffer.reserve(512);
 }
 
-void grid210x_device::device_start()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::start()
 {
 	m_emu = std::make_unique<grid210x_disk_emu>(
 		this,
@@ -43,13 +217,15 @@ void grid210x_device::device_start()
 	m_thread = std::thread([this]() { thread_entry(); });
 }
 
-void grid210x_device::device_stop()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::stop()
 {
 	m_thread_sync.shutdown();
 	m_thread.join();
 }
 
-void grid210x_device::thread_entry()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::thread_entry()
 {
 	try
 	{
@@ -57,11 +233,12 @@ void grid210x_device::thread_entry()
 	}
 	catch (grid210x_device_shutdown e)
 	{
-		osd_printf_verbose("%s: thread shutdown\n", tag());
+		osd_printf_verbose("%s: thread shutdown\n", this->tag());
 	}
 }
 
-void grid210x_device::listen_gpib_commands()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::listen_gpib_commands()
 {
 	while (true)
 	{
@@ -101,8 +278,7 @@ void grid210x_device::listen_gpib_commands()
 			break;
 
 		case grid210x_gpib_cmd::cmd_type::MLA:
-			// todo: check real address
-			if (cmd.addr == 5)
+			if (cmd.addr == m_gpib_address)
 			{
 				m_listener->end_handshake();
 
@@ -132,8 +308,7 @@ void grid210x_device::listen_gpib_commands()
 			break;
 
 		case grid210x_gpib_cmd::cmd_type::MTA:
-			// todo: check real address
-			if (cmd.addr == 5)
+			if (cmd.addr == m_gpib_address)
 			{
 				m_listener->end_handshake();
 
@@ -171,7 +346,8 @@ void grid210x_device::listen_gpib_commands()
 	}
 }
 
-void grid210x_device::listen_to_buffer()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::listen_to_buffer()
 {
 	while (true) {
 		uint8_t byte = m_listener->handshake_byte();
@@ -190,66 +366,15 @@ void grid210x_device::listen_to_buffer()
 	}
 }
 
-
-//**************************************************************************
-//  DISK EMULATOR IO IMPLEMENTATION
-//**************************************************************************
-
-bool grid210x_device::is_floppy()
-{
-	// fixme: implement only in children.
-	return true;
-}
-
-bool grid210x_device::has_disk()
-{
-	// fixme: use mame value.
-	return true;
-}
-
-grid210x_disk_geometry grid210x_device::get_geometry()
-{
-	// fixme: fill real value
-	return grid210x_disk_geometry
-	{
-		/* sector_count        */ 720,
-		/* sectors_per_track   */ 0,
-		/* tracks_per_cylinder */ 0,
-		/* interleave_factor   */ 0,
-		/* second_side_count   */ 0,
-		/* num_cylinders       */ 0,
-	};
-}
-
-void grid210x_device::read_sector(uint32_t sector, uint8_t *buffer)
-{
-	osd_printf_verbose("%s io: read sector %d\n", tag(), sector);
-
-	fseek(sector * 512, SEEK_SET);
-	fread(buffer, 512);
-}
-
-void grid210x_device::write_sector(uint32_t sector, const uint8_t *buffer)
-{
-	osd_printf_verbose("%s io: write sector %d\n", tag(), sector);
-
-	fseek(sector * 512, SEEK_SET);
-	fwrite(buffer, 512);
-}
-
-void grid210x_device::format_disk()
-{
-	osd_printf_verbose("%s io: low level disk format\n", tag());
-
-	// stub
-}
-
-void grid210x_device::raise_srq()
+template <class BaseDevice>
+void grid210x_device<BaseDevice>::raise_srq()
 {
 	m_bus->srq_w(this, 0);
 	m_srq_raised = true;
 }
 
+template class grid210x_device<harddisk_image_device>;
+template class grid210x_device<floppy_image_device>;
 
 //**************************************************************************
 //  DISK EMULATOR IMPLEMENTATION
@@ -321,7 +446,7 @@ void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 	output[55] = (num_cylinders >> 8) & 0xFF;
 }
 
-grid210x_disk_emu::grid210x_disk_emu(grid210x_device *dev, grid210x_disk_io disk_io, attotime io_delay)
+grid210x_disk_emu::grid210x_disk_emu(device_t *dev, grid210x_disk_io disk_io, attotime io_delay)
 {
 	tag = dev->tag();
 	m_disk_io = disk_io;
@@ -670,7 +795,7 @@ void grid210x_thread_sync::wait_state(std::unique_lock<std::mutex> &lock, state 
 	});
 }
 
-grid210x_gpib_listener::grid210x_gpib_listener(grid210x_device* dev, ieee488_device *bus, grid210x_thread_sync *sync)
+grid210x_gpib_listener::grid210x_gpib_listener(device_t* dev, ieee488_device *bus, grid210x_thread_sync *sync)
 {
 	m_dev = dev;
 	m_bus = bus;
@@ -679,7 +804,7 @@ grid210x_gpib_listener::grid210x_gpib_listener(grid210x_device* dev, ieee488_dev
 
 grid210x_gpib_cmd grid210x_gpib_listener::start_command_handshake()
 {
-	for (;;)
+	while (true)
 	{
 		if (m_bus->atn_r() == 1)
 		{
@@ -737,7 +862,7 @@ uint8_t grid210x_gpib_listener::handshake_byte()
 	return byte;
 }
 
-grid210x_gpib_talker::grid210x_gpib_talker(grid210x_device* dev, ieee488_device *bus, grid210x_thread_sync *sync)
+grid210x_gpib_talker::grid210x_gpib_talker(device_t* dev, ieee488_device *bus, grid210x_thread_sync *sync)
 {
 	m_dev = dev;
 	m_bus = bus;
