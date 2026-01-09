@@ -79,14 +79,16 @@ void grid2102_device::read_sector(uint32_t sector, uint8_t *buffer)
 {
 	osd_printf_verbose("%s io: read sector %d\n", tag(), sector);
 
-	// todo
+	fseek(sector * 512, SEEK_SET);
+	fread(buffer, 512);
 }
 
 void grid2102_device::write_sector(uint32_t sector, const uint8_t *buffer)
 {
 	osd_printf_verbose("%s io: write sector %d\n", tag(), sector);
 
-	// todo
+	fseek(sector * 512, SEEK_SET);
+	fwrite(buffer, 512);
 }
 
 void grid2102_device::format_disk()
