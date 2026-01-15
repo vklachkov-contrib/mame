@@ -72,6 +72,8 @@ grid210x_disk_geometry grid2102_device::get_geometry() const
 		/* interleave_factor   */ 5,
 		/* second_side_count   */ 1,
 		/* unused              */ 0,
+		/* superblock_fid */      0x121,
+		/* bitmap_fid */          0x120,
 	};
 }
 
@@ -141,14 +143,24 @@ grid210x_disk_geometry grid2101_device::get_geometry() const
 		return static_cast<uint16_t>(std::min<uint32_t>(value, uint16_t(0xFFFF)));
 	};
 
+	const uint16_t sector_count = clamp_uint16t(info.cylinders * info.heads * info.sectors);
+	
+	const uint16_t superblock = 0x2420;
+	const uint16_t required_bytes = sector_count / 8;
+	const uint16_t bytes_per_sector = 500;
+  	const uint16_t count = required_bytes / bytes_per_sector + 1;
+  	const uint16_t bitmask = superblock - count;
+
 	return grid210x_disk_geometry
 	{
-		/* sector_count        */ clamp_uint16t(info.cylinders * info.heads * info.sectors),
+		/* sector_count        */ sector_count,
 		/* sectors_per_track   */ clamp_uint16t(info.sectors),
 		/* tracks_per_cylinder */ clamp_uint16t(info.heads),
 		/* interleave_factor   */ 0,
 		/* second_side_count   */ 0,
 		/* num_cylinders       */ clamp_uint16t(info.cylinders),
+		/* superblock_fid */      superblock,
+		/* bitmap_fid */          bitmask,
 	};
 }
 
@@ -425,10 +437,10 @@ void grid210x_disk_status::serialize(std::vector<uint8_t> &output) const
 	output[4] = sector_count & 0xFF;
 	output[5] = (sector_count >> 8) & 0xFF;
 	output[6] = drive_status;
-	output[7] = bitmap_block_id & 0xFF;
-	output[8] = (bitmap_block_id >> 8) & 0xFF;
-	output[9] = superblock_id & 0xFF;
-	output[10] = (superblock_id >> 8) & 0xFF;
+	output[7] = bitmap_fid & 0xFF;
+	output[8] = (bitmap_fid >> 8) & 0xFF;
+	output[9] = superblock_fid & 0xFF;
+	output[10] = (superblock_fid >> 8) & 0xFF;
 	output[11] = min_dir_pages & 0xFF;
 	output[12] = (min_dir_pages >> 8) & 0xFF;
 	output[13] = flush;
@@ -667,8 +679,8 @@ void grid210x_disk_emu::get_status(uint16_t data_size)
 	status.logical_sector_size = 504;
 	status.sector_count = geom.sector_count;
 	status.drive_status = 1;
-	status.bitmap_block_id = 0x120;
-	status.superblock_id = 0x121;
+	status.bitmap_fid = geom.bitmap_fid;
+	status.superblock_fid = geom.superblock_fid;
 	status.min_dir_pages = 1;
 	status.flush = 0;
 	std::fill(std::begin(status.device_name), std::end(status.device_name), ' ');

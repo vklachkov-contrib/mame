@@ -211,11 +211,11 @@ struct grid210x_disk_status
 
 	// Bitmap block number. Always 0x120 (one less than the superblock).
 	// Used only in CCOS.
-	uint16_t bitmap_block_id;
+	uint16_t bitmap_fid;
 
 	// Superblock number. Always 0x121.
 	// Used only in CCOS.
-	uint16_t superblock_id;
+	uint16_t superblock_fid;
 
 	// Unknown purpose. On 2101 always 1.
 	uint16_t min_dir_pages;
@@ -255,6 +255,8 @@ struct grid210x_disk_geometry
 	uint8_t  interleave_factor;
 	uint8_t  second_side_count;
 	uint16_t num_cylinders;
+	uint16_t superblock_fid;
+	uint16_t bitmap_fid;
 };
 
 struct grid210x_disk_io
