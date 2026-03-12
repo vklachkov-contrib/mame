@@ -7,10 +7,11 @@
 // they can't be fully identified without decapping.
 
 #include "emu.h"
-
 #include "elan_eu3a05vid.h"
 
 #include "elan_eu3a05_soc.h"
+
+#include "multibyte.h"
 
 DEFINE_DEVICE_TYPE(ELAN_EU3A05_VID, elan_eu3a05vid_device, "elan_eu3a05vid", "Elan EU3A05 Video")
 DEFINE_DEVICE_TYPE(ELAN_EU3A13_VID, elan_eu3a13vid_device, "elan_eu3a13vid", "Elan EU3A13 Video")
@@ -149,7 +150,7 @@ uint8_t elan_eu3a05vid_device::read_vram(int offset)
 void elan_eu3a05vid_device::draw_sprites(screen_device &screen, bitmap_rgb32 &bitmap, bitmap_ind8 &priority_bitmap, const rectangle &cliprect)
 {
 	address_space &extspace = m_cpu->space(elan_eu3a05_soc_device::AS_EXTERNAL);
-	const pen_t *pen = m_palette->pens();
+	pen_t const *const pen = m_palette->pens();
 
 	/*
 	    Sprites
@@ -369,7 +370,7 @@ bool elan_eu3a05vid_device::get_tile_data(int base, int drawpri, int &tile, int 
 void elan_eu3a05vid_device::draw_tilemaps_tileline(int drawpri, int tile, int attr, int unk2, int tilexsize, int i, int xpos, uint32_t *row)
 {
 	address_space &extspace = m_cpu->space(elan_eu3a05_soc_device::AS_EXTERNAL);
-	const pen_t *pen = m_palette->pens();
+	pen_t const *const pen = m_palette->pens();
 	int colour = attr & 0xf0;
 
 	/* 'tiles' are organized / extracted from 'texture' lines that form a 'page' the length of the rom
@@ -738,10 +739,10 @@ uint16_t elan_eu3a05vid_device::get_scroll(int which)
 {
 	switch (which)
 	{
-	case 0x0: return (m_tile_scroll[1] << 8) | (m_tile_scroll[0]); // xscroll
-	case 0x1: return (m_tile_scroll[3] << 8) | (m_tile_scroll[2]); // yscroll
-	case 0x2: return (m_tile_scroll[5] << 8) | (m_tile_scroll[4]); // xsplit 1 scroll
-	case 0x3: return (m_tile_scroll[7] << 8) | (m_tile_scroll[6]); // scplit 2 scroll
+	case 0x0: return get_u16le(&m_tile_scroll[0]); // xscroll
+	case 0x1: return get_u16le(&m_tile_scroll[2]); // yscroll
+	case 0x2: return get_u16le(&m_tile_scroll[4]); // xsplit 1 scroll
+	case 0x3: return get_u16le(&m_tile_scroll[6]); // scplit 2 scroll
 	}
 
 	return 0x0000;

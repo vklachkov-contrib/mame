@@ -176,6 +176,7 @@ const double XTAL::known_xtals[] = {
 	  9'600'000, // 9.6_MHz_XTAL           WD37C65 second clock (for 300 KB/sec rate)
 	  9'732'000, // 9.732_MHz_XTAL         CTA Invader
 	  9'828'000, // 9.828_MHz_XTAL         Universal PCBs
+	  9'830'000, // 9.83_MHz_XTAL          Luna 68k timer/serial
 	  9'830'400, // 9.8304_MHz_XTAL        Epson PX-8
 	  9'832'000, // 9.832_MHz_XTAL         Robotron A7150
 	  9'877'680, // 9.87768_MHz_XTAL       Microterm 420
@@ -219,6 +220,7 @@ const double XTAL::known_xtals[] = {
 	 12'292'000, // 12.292_MHz_XTAL        Northwest Digitial Systems GP-19
 	 12'324'000, // 12.324_MHz_XTAL        Otrona Attache
 	 12'335'600, // 12.3356_MHz_XTAL       RasterOps ColorBoard 264 (~784x NTSC line rate)
+	 12'440'000, // 12.44_MHz_XTAL         Status casino / trivia games
 	 12'472'500, // 12.4725_MHz_XTAL       Bonanza's Mini Boy 7
 	 12'480'000, // 12.48_MHz_XTAL         TRS-80 Model II
 	 12'500'000, // 12.5_MHz_XTAL          Red Alert audio board
@@ -245,6 +247,7 @@ const double XTAL::known_xtals[] = {
 	 14'112'000, // 14.112_MHz_XTAL        Timex/Sinclair TS2068
 	 14'192'640, // 14.19264_MHz_XTAL      Central Data 2650
 	 14'218'000, // 14.218_MHz_XTAL        Dragon
+	 14'250'000, // 14.250_MHz_XTAL        Hector HRX
 	 14'250'450, // 14.25045_MHz_XTAL      Apple II Europlus
 	 14'300'000, // 14.3_MHz_XTAL          Agat-7
 	 14'314'000, // 14.314_MHz_XTAL        Taito TTL Board
