@@ -2,7 +2,7 @@
 // copyright-holders:usernameak
 /**********************************************************************
 
-    GRiD 2102 Portable Floppy emulation
+    GRiD 2101 Disk Storage System
 
     http://deltacxx.insomnia247.nl/gridcompass/disk_info.txt for some protocol info
     http://deltacxx.insomnia247.nl/gridcompass/fdd_boards.jpg for floppy drive boards photo
@@ -10,7 +10,7 @@
 **********************************************************************/
 
 #include "emu.h"
-#include "grid2102.h"
+#include "grid2101fake.h"
 
 // device type definition
 DEFINE_DEVICE_TYPE(GRID2102, grid2102_device, "grid2102", "GRID2102")

@@ -2,12 +2,12 @@
 // copyright-holders:usernameak
 /**********************************************************************
 
-    GRiD 2102 Portable Floppy emulation
+    GRiD 2101 Disk Storage System
 
 **********************************************************************/
 
-#ifndef MAME_BUS_IEEE488_GRID2102_H
-#define MAME_BUS_IEEE488_GRID2102_H
+#ifndef MAME_BUS_IEEE488_GRID2101_H
+#define MAME_BUS_IEEE488_GRID2101_H
 
 #pragma once
 
@@ -115,4 +115,4 @@ DECLARE_DEVICE_TYPE(GRID2102, grid2102_device)
 DECLARE_DEVICE_TYPE(GRID2101_FLOPPY, grid2101_floppy_device)
 DECLARE_DEVICE_TYPE(GRID2101_HDD, grid2101_hdd_device)
 
-#endif // MAME_BUS_IEEE488_GRID2102_H
+#endif // MAME_BUS_IEEE488_GRID2101_H
