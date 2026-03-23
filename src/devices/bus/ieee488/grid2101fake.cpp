@@ -13,7 +13,6 @@
 #include "grid2101fake.h"
 
 // device type definition
-DEFINE_DEVICE_TYPE(GRID2102, grid2102_device, "grid2102", "GRID2102")
 DEFINE_DEVICE_TYPE(GRID2101_FLOPPY, grid2101_floppy_device, "grid2101_floppy", "GRID2101_FLOPPY")
 DEFINE_DEVICE_TYPE(GRID2101_HDD, grid2101_hdd_device, "grid2101_hdd", "GRID2101_HDD")
 
@@ -35,7 +34,6 @@ DEFINE_DEVICE_TYPE(GRID2101_HDD, grid2101_hdd_device, "grid2101_hdd", "GRID2101_
 ))
 
 #define GRID2101_HARDDISK_DEV_ADDR 4
-#define GRID2102_DEV_ADDR 6
 
 #define GRID210X_GPIB_STATE_IDLE 0
 #define GRID210X_GPIB_STATE_WAIT_DAV_FALSE 1
@@ -46,11 +44,6 @@ DEFINE_DEVICE_TYPE(GRID2101_HDD, grid2101_hdd_device, "grid2101_hdd", "GRID2101_
 #define GRID210X_STATE_READING_DATA 1
 #define GRID210X_STATE_WRITING_DATA 2
 #define GRID210X_STATE_WRITING_DATA_WAIT 3
-
-uint8_t grid2102_device::identify_response[56] = {0x00, 0x02, 0xf8, 0x01, 0xD0, 0x02, 0x01, 0x20, 0x01, 0x21, 0x01, 0x01, 0x00, 0x00,
-				 0x34, 0x38, 0x20, 0x54, 0x50, 0x49, 0x20, 0x44, 0x53, 0x20, 0x44, 0x44, 0x20, 0x46,
-				 0x4c, 0x4f, 0x50, 0x50, 0x59, 0x20, 0x20, 0x20, 0x20, 0x33, 0x30, 0x32, 0x33, 0x37,
-				 0x2d, 0x30, 0x30, 0x00, 0x02, 0x09, 0x00};
 
 uint8_t grid2101_floppy_device::identify_response[56] = {0x00, 0x02, 0xf8, 0x01, 0xD0, 0x02, 0x01, 0x20, 0x01, 0x21, 0x01, 0x01, 0x00, 0x00,
 				 0x34, 0x38, 0x20, 0x54, 0x50, 0x49, 0x20, 0x44, 0x53, 0x20, 0x44, 0x44, 0x20, 0x46,
@@ -305,11 +298,6 @@ grid2101_hdd_device::grid2101_hdd_device(const machine_config &mconfig, const ch
 }
 
 grid2101_floppy_device::grid2101_floppy_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_device(mconfig, GRID2101_FLOPPY, tag, owner, clock, 5, identify_response)
-{
-
-}
-
-grid2102_device::grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) : grid210x_device(mconfig, GRID2102, tag, owner, clock, 6, identify_response)
 {
 
 }

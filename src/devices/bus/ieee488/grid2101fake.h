@@ -81,14 +81,6 @@ protected:
 	attotime read_delay;
 };
 
-class grid2102_device : public grid210x_device {
-public:
-	// construction/destruction
-	grid2102_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
-private:
-	static uint8_t identify_response[];
-};
-
 class grid2101_floppy_device : public grid210x_device {
 public:
 	// construction/destruction
@@ -111,7 +103,6 @@ private:
 };
 
 // device type definition
-DECLARE_DEVICE_TYPE(GRID2102, grid2102_device)
 DECLARE_DEVICE_TYPE(GRID2101_FLOPPY, grid2101_floppy_device)
 DECLARE_DEVICE_TYPE(GRID2101_HDD, grid2101_hdd_device)
 

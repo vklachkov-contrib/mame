@@ -450,6 +450,7 @@ void remote488_devices(device_slot_interface &device)
 
 // slot devices
 #include "grid2101fake.h"
+#include "grid2102.h"
 
 void grid_ieee488_devices(device_slot_interface &device)
 {
