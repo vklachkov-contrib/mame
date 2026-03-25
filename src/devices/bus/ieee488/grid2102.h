@@ -34,6 +34,7 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
 	// device_ieee488_interface overrides
+	// virtual void ieee488_dio(
 	virtual void ieee488_eoi(int state) override;
 	virtual void ieee488_dav(int state) override;
 	virtual void ieee488_nrfd(int state) override;
@@ -47,7 +48,12 @@ private:
 	void prg_map(address_map &map) ATTR_COLD;
 	void data_map(address_map &map) ATTR_COLD;
 
+	void cpu_irq(int state);
+
 	uint8_t gpib_addr_r(offs_t offset);
+
+	uint8_t gpib_read(offs_t offset);
+	void gpib_write(uint8_t data);
 
 	uint8_t cpu_p1_read(offs_t offset);
 	void cpu_p1_write(uint8_t data);
@@ -60,6 +66,8 @@ private:
 	required_device<floppy_connector> m_floppy;
 
 	required_ioport m_gpib_addr;
+
+	bool m_send_gpib;
 };
 
 // device type definition
